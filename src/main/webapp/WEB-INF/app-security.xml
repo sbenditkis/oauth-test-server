@@ -1,0 +1,139 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:sec="http://www.springframework.org/schema/security" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:oauth="http://www.springframework.org/schema/security/oauth2"
+	xsi:schemaLocation="
+			http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+			http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security.xsd
+			http://www.springframework.org/schema/security/oauth2 http://www.springframework.org/schema/security/spring-security-oauth2.xsd	
+			">
+
+	<http pattern="/oauth/token" create-session="stateless"
+		authentication-manager-ref="authenticationManager"
+		xmlns="http://www.springframework.org/schema/security">
+		<intercept-url pattern="/oauth/token" access="IS_AUTHENTICATED_FULLY" />
+		<anonymous enabled="false" />
+		<custom-filter ref="clientCredentialsTokenEndpointFilter"
+			before="BASIC_AUTH_FILTER" />
+		<access-denied-handler ref="oauthAccessDeniedHandler" />
+		<http-basic entry-point-ref="clientAuthenticationEntryPoint" />
+	</http>
+
+	<bean id="clientCredentialsTokenEndpointFilter"
+		class="org.springframework.security.oauth2.provider.client.ClientCredentialsTokenEndpointFilter">
+		<property name="authenticationManager" ref="authenticationManager" />
+	</bean>
+	
+	<authentication-manager alias="authenticationManager"
+		xmlns="http://www.springframework.org/schema/security">
+		<authentication-provider user-service-ref="clientDetailsUserService" />
+	</authentication-manager>
+
+	<bean id="clientDetailsUserService"
+		class="org.springframework.security.oauth2.provider.client.ClientDetailsUserDetailsService">
+		<constructor-arg ref="clientDetails" />
+	</bean>
+
+	<oauth:client-details-service id="clientDetails">
+		<oauth:client client-id="client1" secret="client1" authorized-grant-types="password, authorization_code, refresh_token"/>
+	</oauth:client-details-service>
+
+	<bean id="clientAuthenticationEntryPoint"
+		class="org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint">
+		<property name="realmName" value="springsec/client" />
+		<property name="typeName" value="Basic" />
+	</bean>
+
+	<bean id="oauthAccessDeniedHandler"
+		class="org.springframework.security.oauth2.provider.error.OAuth2AccessDeniedHandler" />
+
+
+	<http pattern="/logout" create-session="never"
+		entry-point-ref="oauthAuthenticationEntryPoint"
+		access-decision-manager-ref="accessDecisionManager"
+		xmlns="http://www.springframework.org/schema/security">
+		<anonymous enabled="false" />
+		<intercept-url pattern="/logout" access="ROLE_CLIENT"
+			method="GET" />
+		<logout invalidate-session="true" logout-url="/logout"
+			success-handler-ref="logoutSuccessHandler" />
+		<custom-filter ref="resourceServerFilter" before="PRE_AUTH_FILTER" />
+		<access-denied-handler ref="oauthAccessDeniedHandler" />
+	</http>
+
+	<bean id="logoutSuccessHandler" class="com.sapiens.tests.oauth.LogoutImpl">
+		<property name="tokenstore" ref="tokenStore"></property>
+	</bean>
+
+	<!-- Authorization server -->
+	<oauth:authorization-server
+		client-details-service-ref="clientDetails" token-services-ref="tokenServices">
+		<oauth:authorization-code />
+		<oauth:implicit />
+		<oauth:refresh-token />
+		<oauth:client-credentials />
+		<oauth:password authentication-manager-ref="userAuthenticationManager" />
+	</oauth:authorization-server>
+
+	<authentication-manager id="userAuthenticationManager"
+		xmlns="http://www.springframework.org/schema/security">
+		<authentication-provider>
+			<sec:user-service>
+				<sec:user name="user1" password="user1" authorities="ROLE_USER"/>
+			</sec:user-service>
+		</authentication-provider>
+	</authentication-manager>
+
+	<bean id="resourceOwnerPasswordTokenGranter"
+		class="org.springframework.security.oauth2.provider.password.ResourceOwnerPasswordTokenGranter">
+		<constructor-arg name="authenticationManager" ref="userAuthenticationManager"/>
+		<constructor-arg name="tokenServices" ref="tokenServices"/>
+		<constructor-arg name="clientDetailsService" ref="clientDetails"/>
+		<constructor-arg name="requestFactory" ref="defaultOAuth2RequestFactory"/>
+	</bean>
+	
+	<bean id="defaultOAuth2RequestFactory" class="org.springframework.security.oauth2.provider.request.DefaultOAuth2RequestFactory">
+		<constructor-arg name="clientDetailsService" ref="clientDetails"/>
+	</bean>
+	
+
+	<bean id="tokenServices"
+		class="org.springframework.security.oauth2.provider.token.DefaultTokenServices">
+		<property name="tokenStore" ref="tokenStore" />
+		<property name="supportRefreshToken" value="true" />
+		<property name="accessTokenValiditySeconds" value="900000000"></property>
+		<property name="clientDetailsService" ref="clientDetails" />
+	</bean>
+
+	<bean id="tokenStore"
+		class="org.springframework.security.oauth2.provider.token.store.InMemoryTokenStore" />
+
+	<bean id="oauthAuthenticationEntryPoint"
+		class="org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint">
+	</bean>
+
+	<bean id="accessDecisionManager" class="org.springframework.security.access.vote.UnanimousBased"
+		xmlns="http://www.springframework.org/schema/beans">
+		<constructor-arg>
+			<list>
+				<bean class="org.springframework.security.oauth2.provider.vote.ScopeVoter" />
+				<bean class="org.springframework.security.access.vote.RoleVoter" />
+				<bean class="org.springframework.security.access.vote.AuthenticatedVoter" />
+			</list>
+		</constructor-arg>
+	</bean>
+
+
+	<!-- Resource protection -->
+	<http pattern="/resources/**" create-session="never"
+		entry-point-ref="oauthAuthenticationEntryPoint" xmlns="http://www.springframework.org/schema/security">
+		<anonymous enabled="false" />
+		<intercept-url pattern="/resources/**" method="GET" />
+		<custom-filter ref="resourceServerFilter" before="PRE_AUTH_FILTER" />
+		<access-denied-handler ref="oauthAccessDeniedHandler" />
+	</http>
+	<oauth:resource-server id="resourceServerFilter"
+		resource-id="springsec" token-services-ref="tokenServices" />
+
+
+
+</beans>
